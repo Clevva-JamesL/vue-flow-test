@@ -203,6 +203,7 @@ export async function saveTimelineGraph(timelineId: string, payload: SaveTimelin
 function toFlowNode(
   node: typeof timelineNodes.$inferSelect,
   mediaItem: typeof mediaItems.$inferSelect | null,
+  graphNode?: FlowNode,
 ): FlowNode {
   const data: Record<string, unknown> = { ...node.nodeData }
 
@@ -220,6 +221,8 @@ function toFlowNode(
     type: node.nodeType,
     position: { x: node.positionX, y: node.positionY },
     parentNode: node.parentVueNodeId ?? undefined,
+    extent: graphNode?.extent,
+    style: graphNode?.style,
     data,
   }
 }
@@ -260,13 +263,17 @@ export async function getTimelineGraphById(timelineId: string) {
     .where(eq(timelineEdges.timelineId, timelineId))
     .all()
 
+  const graphNodesById = new Map(
+    (timeline.graphJson.nodes as FlowNode[]).map((node) => [node.id, node]),
+  )
+
   if (nodeRows.length === 0 && edgeRows.length === 0 && timeline.graphJson.nodes.length > 0) {
     return graphFromLegacyJson(timeline)
   }
 
   return {
     timeline,
-    nodes: nodeRows.map((row) => toFlowNode(row.node, row.mediaItem)),
+    nodes: nodeRows.map((row) => toFlowNode(row.node, row.mediaItem, graphNodesById.get(row.node.vueNodeId))),
     edges: edgeRows.map((row) => toFlowEdge(row)),
     viewport: timeline.viewport ?? timeline.graphJson.viewport ?? null,
   }

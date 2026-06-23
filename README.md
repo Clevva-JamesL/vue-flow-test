@@ -2,6 +2,8 @@
 
 A literary timeline builder sandbox using Vue 3, Pinia, Vue Flow, Hono, Drizzle, and SQLite.
 
+See [docs/ARCHITECTURE_PLAN.md](docs/ARCHITECTURE_PLAN.md) for the original architecture plan.
+
 ## Stack
 
 - **apps/web** — Vue 3 + Vite + Pinia + Vue Flow 1.48

@@ -1,8 +1,13 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { ViewportTransform } from '@vue-flow/core'
-import type { FlowEdge, FlowNode, SaveTimelinePayload } from '@repo/shared'
+import type { FlowEdge, FlowNode, FlowNodeType, SaveTimelinePayload } from '@repo/shared'
 import { timelineApi } from '@/api/timelines'
+import { createFlowNode, toStoreNode } from '@/lib/flowNodes'
+
+function cloneFlowNode(node: FlowNode): FlowNode {
+  return toStoreNode(node)
+}
 
 export const useTimelineStore = defineStore('timeline', () => {
   const id = ref<string | null>(null)
@@ -45,6 +50,39 @@ export const useTimelineStore = defineStore('timeline', () => {
     markDirty()
   }
 
+  function addNode(type: FlowNodeType, overrides?: Partial<FlowNode>) {
+    const node = createFlowNode(type, nodes.value.length + 1, overrides)
+    nodes.value = [...nodes.value, node]
+    markDirty()
+    return node
+  }
+
+  function addChildNode(type: Exclude<FlowNodeType, 'group'>, parentNodeId: string, overrides?: Partial<FlowNode>) {
+    const siblings = nodes.value.filter((node) => node.parentNode === parentNodeId)
+    const node = createFlowNode(type, nodes.value.length + 1, {
+      parentNode: parentNodeId,
+      extent: 'parent',
+      position: { x: 24 + siblings.length * 28, y: 72 + siblings.length * 24 },
+      ...overrides,
+    })
+    nodes.value = [...nodes.value, node]
+    markDirty()
+    return node
+  }
+
+  function removeNode(nodeId: string) {
+    const childIds = new Set(
+      nodes.value.filter((node) => node.parentNode === nodeId).map((node) => node.id),
+    )
+    childIds.add(nodeId)
+
+    nodes.value = nodes.value.filter((node) => !childIds.has(node.id))
+    edges.value = edges.value.filter(
+      (edge) => !childIds.has(edge.source) && !childIds.has(edge.target),
+    )
+    markDirty()
+  }
+
   async function load(timelineId: string) {
     isLoading.value = true
     error.value = null
@@ -53,9 +91,9 @@ export const useTimelineStore = defineStore('timeline', () => {
       const timeline = await timelineApi.get(timelineId)
       id.value = timeline.id
       title.value = timeline.title
-      nodes.value = timeline.nodes
-      edges.value = timeline.edges
-      viewport.value = timeline.viewport as ViewportTransform | null
+      nodes.value = timeline.nodes.map(cloneFlowNode)
+      edges.value = timeline.edges.map((edge) => ({ ...edge }))
+      viewport.value = timeline.viewport ? { ...timeline.viewport } : null
       hasUnsavedChanges.value = false
       lastSavedAt.value = timeline.updatedAt
     } catch (err) {
@@ -75,6 +113,9 @@ export const useTimelineStore = defineStore('timeline', () => {
     try {
       const timeline = await timelineApi.save(id.value, savePayload.value)
       title.value = timeline.title
+      nodes.value = timeline.nodes.map(cloneFlowNode)
+      edges.value = timeline.edges.map((edge) => ({ ...edge }))
+      viewport.value = timeline.viewport ? { ...timeline.viewport } : null
       lastSavedAt.value = timeline.updatedAt
       hasUnsavedChanges.value = false
     } catch (err) {
@@ -113,6 +154,9 @@ export const useTimelineStore = defineStore('timeline', () => {
     markDirty,
     setGraph,
     setViewport,
+    addNode,
+    addChildNode,
+    removeNode,
     load,
     save,
     reset,

@@ -23,7 +23,7 @@ export function useTimelinePersistence(debounceMs = 1500) {
   }, debounceMs)
 
   const stopWatch = watch(
-    () => store.savePayload,
+    () => [store.nodes, store.edges, store.viewport, store.title] as const,
     () => {
       if (store.hasUnsavedChanges && store.id) {
         void debouncedSave()

@@ -1,20 +1,25 @@
 <script setup lang="ts">
+import { computed, nextTick, ref, unref } from 'vue'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import {
   VueFlow,
-  applyEdgeChanges,
-  applyNodeChanges,
   type EdgeChange,
   type NodeChange,
   type ViewportTransform,
+  type VueFlowStore,
 } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { markRaw } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useTimelineStore } from '@/stores/timelineStore'
 import { useTimelinePersistence } from '@/composables/useTimelinePersistence'
-import MediaNode from '@/components/flow/nodes/MediaNode.vue'
+import BookNode from '@/components/flow/nodes/BookNode.vue'
+import MovieNode from '@/components/flow/nodes/MovieNode.vue'
+import GameNode from '@/components/flow/nodes/GameNode.vue'
+import GroupNode from '@/components/flow/nodes/GroupNode.vue'
+import type { FlowEdge, FlowNode } from '@repo/shared'
+import { toStoreNodes } from '@/lib/flowNodes'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -22,30 +27,58 @@ import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
 const store = useTimelineStore()
-const { nodes, edges, viewport } = storeToRefs(store)
+const { nodes, edges, viewport, id: timelineId } = storeToRefs(store)
+
+const skipViewportDirty = ref(true)
+const canSyncFromFlow = ref(false)
+const flowInstance = ref<VueFlowStore | null>(null)
 
 const nodeTypes = {
-  book: markRaw(MediaNode),
-  movie: markRaw(MediaNode),
-  game: markRaw(MediaNode),
-  group: markRaw(MediaNode),
-  default: markRaw(MediaNode),
+  book: markRaw(BookNode),
+  movie: markRaw(MovieNode),
+  game: markRaw(GameNode),
+  group: markRaw(GroupNode),
 }
 
 useTimelinePersistence()
 
+// Ignore Vue Flow's init-time writebacks; they can overwrite loaded positions with (0, 0).
+const flowNodes = computed({
+  get: () => nodes.value as any,
+  set: (value: FlowNode[]) => {
+    if (!canSyncFromFlow.value) return
+    nodes.value = toStoreNodes(value)
+  },
+})
+
+const flowEdges = computed({
+  get: () => edges.value as any,
+  set: (value: FlowEdge[]) => {
+    if (!canSyncFromFlow.value) return
+    edges.value = value.map((edge) => ({ ...edge }))
+  },
+})
+
+function onNodesInitialized() {
+  canSyncFromFlow.value = true
+}
+
 function onNodesChange(changes: NodeChange[]) {
-  nodes.value = applyNodeChanges(changes, nodes.value as never) as typeof nodes.value
-  if (changes.some((change) => change.type !== 'select')) {
+  if (changes.some((change) => change.type === 'add' || change.type === 'remove')) {
     store.markDirty()
   }
 }
 
 function onEdgesChange(changes: EdgeChange[]) {
-  edges.value = applyEdgeChanges(changes, edges.value as never) as typeof edges.value
-  if (changes.some((change) => change.type !== 'select')) {
+  if (changes.some((change) => change.type === 'add' || change.type === 'remove')) {
     store.markDirty()
   }
+}
+
+function onNodeDragStop() {
+  if (!flowInstance.value || !canSyncFromFlow.value) return
+  nodes.value = toStoreNodes(unref(flowInstance.value.getNodes) as FlowNode[])
+  store.markDirty()
 }
 
 function onConnect(connection: { source: string; target: string }) {
@@ -61,24 +94,45 @@ function onConnect(connection: { source: string; target: string }) {
 }
 
 function onViewportChange(nextViewport: ViewportTransform) {
+  if (skipViewportDirty.value) return
   store.setViewport(nextViewport)
+}
+
+async function onPaneReady(flow: VueFlowStore) {
+  flowInstance.value = flow
+  skipViewportDirty.value = true
+
+  await nextTick()
+
+  if (viewport.value) {
+    flow.setViewport(viewport.value)
+  } else if (nodes.value.length > 0) {
+    await flow.fitView()
+  }
+
+  await nextTick()
+  skipViewportDirty.value = false
 }
 </script>
 
 <template>
-  <div class="flow-canvas">
+  <div class="flow-canvas size-full min-h-0 overflow-hidden rounded-xl border bg-card">
     <VueFlow
-      :nodes="(nodes as any)"
-      :edges="(edges as any)"
+      :key="timelineId ?? undefined"
+      v-model:nodes="flowNodes"
+      v-model:edges="flowEdges"
       :node-types="(nodeTypes as any)"
       :default-viewport="viewport ?? undefined"
-      fit-view-on-init
+      :fit-view-on-init="false"
+      @nodes-initialized="onNodesInitialized"
       @nodes-change="onNodesChange"
       @edges-change="onEdgesChange"
+      @node-drag-stop="onNodeDragStop"
       @connect="onConnect"
       @viewport-change="onViewportChange"
+      @pane-ready="onPaneReady"
     >
-      <Background pattern-color="#d0d7e6" :gap="16" />
+      <Background pattern-color="var(--border)" :gap="16" />
       <Controls />
       <MiniMap />
     </VueFlow>
@@ -86,18 +140,16 @@ function onViewportChange(nextViewport: ViewportTransform) {
 </template>
 
 <style scoped>
-.flow-canvas {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  border: 1px solid #d8deea;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #fff;
-}
-
 .flow-canvas :deep(.vue-flow) {
   width: 100%;
   height: 100%;
+}
+
+.flow-canvas :deep(.vue-flow__node-group) {
+  z-index: 0;
+}
+
+.flow-canvas :deep(.vue-flow__node:not(.vue-flow__node-group)) {
+  z-index: 1;
 }
 </style>
