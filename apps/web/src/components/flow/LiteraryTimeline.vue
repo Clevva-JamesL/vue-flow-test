@@ -10,10 +10,11 @@ import {
   type ViewportTransform,
 } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
+import { markRaw } from 'vue'
 import { storeToRefs } from 'pinia'
-import { onMounted } from 'vue'
 import { useTimelineStore } from '@/stores/timelineStore'
 import { useTimelinePersistence } from '@/composables/useTimelinePersistence'
+import MediaNode from '@/components/flow/nodes/MediaNode.vue'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -23,13 +24,15 @@ import '@vue-flow/minimap/dist/style.css'
 const store = useTimelineStore()
 const { nodes, edges, viewport } = storeToRefs(store)
 
-useTimelinePersistence()
+const nodeTypes = {
+  book: markRaw(MediaNode),
+  movie: markRaw(MediaNode),
+  game: markRaw(MediaNode),
+  group: markRaw(MediaNode),
+  default: markRaw(MediaNode),
+}
 
-onMounted(() => {
-  if (viewport.value) {
-    // Viewport is restored via default-viewport prop on first render
-  }
-})
+useTimelinePersistence()
 
 function onNodesChange(changes: NodeChange[]) {
   nodes.value = applyNodeChanges(changes, nodes.value as never) as typeof nodes.value
@@ -67,6 +70,7 @@ function onViewportChange(nextViewport: ViewportTransform) {
     <VueFlow
       :nodes="(nodes as any)"
       :edges="(edges as any)"
+      :node-types="(nodeTypes as any)"
       :default-viewport="viewport ?? undefined"
       fit-view-on-init
       @nodes-change="onNodesChange"
@@ -90,5 +94,10 @@ function onViewportChange(nextViewport: ViewportTransform) {
   border-radius: 12px;
   overflow: hidden;
   background: #fff;
+}
+
+.flow-canvas :deep(.vue-flow) {
+  width: 100%;
+  height: 100%;
 }
 </style>

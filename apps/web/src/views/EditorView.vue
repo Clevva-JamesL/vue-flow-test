@@ -45,6 +45,7 @@ function addDemoNode() {
   const nextIndex = store.nodes.length + 1
   store.nodes.push({
     id: `node-${Date.now()}`,
+    type: 'book',
     position: { x: 120 + nextIndex * 40, y: 100 + nextIndex * 30 },
     data: { mediaType: 'book', title: `Work ${nextIndex}` },
   })
@@ -85,9 +86,10 @@ function addDemoNode() {
 .editor {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
   padding: 1rem 1rem 1.25rem;
   gap: 0.75rem;
+  box-sizing: border-box;
 }
 
 .editor__toolbar {
@@ -153,8 +155,9 @@ function addDemoNode() {
 }
 
 .editor__canvas {
-  flex: 1;
-  min-height: calc(100vh - 8rem);
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
 }
 
 .loading,
