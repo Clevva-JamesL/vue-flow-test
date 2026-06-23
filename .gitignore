@@ -1,0 +1,14 @@
+node_modules
+dist
+.DS_Store
+*.local
+.env
+.env.*
+!.env.example
+
+# SQLite
+apps/api/data/*.db
+apps/api/data/*.db-*
+
+# Logs
+*.log
