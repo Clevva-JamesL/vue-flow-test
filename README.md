@@ -61,3 +61,18 @@ Verify Step 2:
 ```bash
 pnpm test:step2
 ```
+
+## Step 3 deliverables
+
+- Session auth: register, login, logout, `/auth/me`
+- Cookie-based sessions stored in SQLite
+- Timeline ownership: create/list/edit scoped to the signed-in user
+- Publish flow: `POST /timelines/:id/publish` snapshots graph to `published_graph_json`
+- Public read-only sharing: `GET /timelines/share/:slug` and `/share/:slug` in the web app
+- Editor publish controls with copyable share link
+
+Verify Step 3:
+
+```bash
+pnpm test:step3
+```

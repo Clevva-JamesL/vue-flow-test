@@ -18,7 +18,7 @@ export function useTimelinePersistence(debounceMs = 1500) {
   const store = useTimelineStore()
 
   const debouncedSave = debounce(async () => {
-    if (!store.id || !store.hasUnsavedChanges || store.isSaving) return
+    if (!store.id || store.isReadOnly || !store.hasUnsavedChanges || store.isSaving) return
     await store.save()
   }, debounceMs)
 

@@ -1,7 +1,7 @@
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import type { FlowEdge, FlowNode, MediaType, SaveTimelinePayload } from '@repo/shared'
+import type { FlowEdge, FlowNode, MediaType, SaveTimelinePayload, TimelineVisibility } from '@repo/shared'
 import { db } from '../db'
 import * as schema from '../db/schema'
 import { mediaItems, timelineEdges, timelineNodes, timelines, type TimelineRow } from '../db/schema'
@@ -12,6 +12,32 @@ type ExternalIds = {
   isbn?: string
   tmdbId?: number
   igdbId?: number
+}
+
+type StoredGraphJson = {
+  nodes?: unknown[]
+  edges?: unknown[]
+  viewport?: { x: number; y: number; zoom: number } | null
+}
+
+function normalizeGraphJson(graphJson: TimelineRow['graphJson'] | string | null | undefined) {
+  let parsed: StoredGraphJson | null = graphJson as StoredGraphJson | null
+
+  if (typeof graphJson === 'string') {
+    try {
+      parsed = JSON.parse(graphJson) as StoredGraphJson
+    } catch {
+      parsed = null
+    }
+  }
+
+  const graph = parsed ?? { nodes: [], edges: [], viewport: null }
+
+  return {
+    nodes: Array.isArray(graph.nodes) ? (graph.nodes as FlowNode[]) : [],
+    edges: Array.isArray(graph.edges) ? (graph.edges as FlowEdge[]) : [],
+    viewport: graph.viewport ?? null,
+  }
 }
 
 function isMediaType(value: unknown): value is MediaType {
@@ -132,7 +158,8 @@ export async function saveTimelineGraph(timelineId: string, payload: SaveTimelin
   }
 
   const now = new Date()
-  const viewport = payload.viewport ?? existing.viewport ?? existing.graphJson.viewport ?? null
+  const existingGraph = normalizeGraphJson(existing.graphJson)
+  const viewport = payload.viewport ?? existing.viewport ?? existingGraph.viewport ?? null
 
   const nodeMediaMap = new Map<string, string | null>()
   for (const node of payload.nodes) {
@@ -263,28 +290,30 @@ export async function getTimelineGraphById(timelineId: string) {
     .where(eq(timelineEdges.timelineId, timelineId))
     .all()
 
-  const graphNodesById = new Map(
-    (timeline.graphJson.nodes as FlowNode[]).map((node) => [node.id, node]),
-  )
+  const graphJson = normalizeGraphJson(timeline.graphJson)
+  const graphNodesById = new Map(graphJson.nodes.map((node) => [node.id, node]))
 
-  if (nodeRows.length === 0 && edgeRows.length === 0 && timeline.graphJson.nodes.length > 0) {
-    return graphFromLegacyJson(timeline)
+  if (nodeRows.length === 0 && edgeRows.length === 0 && graphJson.nodes.length > 0) {
+    return graphFromLegacyJson(timeline, graphJson)
   }
 
   return {
     timeline,
     nodes: nodeRows.map((row) => toFlowNode(row.node, row.mediaItem, graphNodesById.get(row.node.vueNodeId))),
     edges: edgeRows.map((row) => toFlowEdge(row)),
-    viewport: timeline.viewport ?? timeline.graphJson.viewport ?? null,
+    viewport: timeline.viewport ?? graphJson.viewport ?? null,
   }
 }
 
-function graphFromLegacyJson(timeline: TimelineRow) {
+function graphFromLegacyJson(
+  timeline: TimelineRow,
+  graphJson = normalizeGraphJson(timeline.graphJson),
+) {
   return {
     timeline,
-    nodes: timeline.graphJson.nodes as FlowNode[],
-    edges: timeline.graphJson.edges as FlowEdge[],
-    viewport: timeline.viewport ?? timeline.graphJson.viewport ?? null,
+    nodes: graphJson.nodes,
+    edges: graphJson.edges,
+    viewport: timeline.viewport ?? graphJson.viewport ?? null,
   }
 }
 
@@ -363,8 +392,9 @@ export async function backfillTimelineFromGraphJson(timelineId: string) {
     return false
   }
 
-  const nodes = timeline.graphJson.nodes as FlowNode[]
-  const edges = timeline.graphJson.edges as FlowEdge[]
+  const graphJson = normalizeGraphJson(timeline.graphJson)
+  const nodes = graphJson.nodes
+  const edges = graphJson.edges
 
   if (nodes.length === 0 && edges.length === 0) {
     return false
@@ -397,6 +427,7 @@ export function toTimelineResponse(
   nodes: FlowNode[],
   edges: FlowEdge[],
   viewport: { x: number; y: number; zoom: number } | null,
+  options?: { readOnly?: boolean },
 ) {
   return {
     id: timeline.id,
@@ -406,7 +437,115 @@ export function toTimelineResponse(
     viewport,
     visibility: timeline.visibility,
     shareSlug: timeline.shareSlug,
+    publishedAt: timeline.publishedAt?.toISOString() ?? null,
+    readOnly: options?.readOnly ?? false,
     createdAt: timeline.createdAt.toISOString(),
     updatedAt: timeline.updatedAt.toISOString(),
+  }
+}
+
+function generateShareSlug() {
+  return randomBytes(8).toString('base64url').slice(0, 12)
+}
+
+function generateUniqueShareSlug() {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const slug = generateShareSlug()
+    const existing = db
+      .select({ id: timelines.id })
+      .from(timelines)
+      .where(eq(timelines.shareSlug, slug))
+      .get()
+
+    if (!existing) {
+      return slug
+    }
+  }
+
+  throw new Error('Failed to generate unique share slug')
+}
+
+export function userCanWriteTimeline(timeline: TimelineRow, userId: string | null) {
+  if (!timeline.ownerId) {
+    return true
+  }
+
+  return userId === timeline.ownerId
+}
+
+export function userCanReadTimeline(timeline: TimelineRow, userId: string | null) {
+  if (!timeline.ownerId) {
+    return true
+  }
+
+  return userId === timeline.ownerId
+}
+
+export async function publishTimeline(
+  timelineId: string,
+  userId: string,
+  visibility: Extract<TimelineVisibility, 'public' | 'unlisted'>,
+) {
+  const graph = await getTimelineGraphById(timelineId)
+  if (!graph || !userCanWriteTimeline(graph.timeline, userId)) {
+    return null
+  }
+
+  const now = new Date()
+  const shareSlug = graph.timeline.shareSlug ?? generateUniqueShareSlug()
+  const snapshot = {
+    nodes: graph.nodes,
+    edges: graph.edges,
+    viewport: graph.viewport,
+  }
+
+  db.update(timelines)
+    .set({
+      visibility,
+      shareSlug,
+      publishedAt: now,
+      publishedGraphJson: snapshot,
+      updatedAt: now,
+    })
+    .where(eq(timelines.id, timelineId))
+    .run()
+
+  return getTimelineGraphById(timelineId)
+}
+
+export async function unpublishTimeline(timelineId: string, userId: string) {
+  const timeline = db.select().from(timelines).where(eq(timelines.id, timelineId)).get()
+  if (!timeline || !userCanWriteTimeline(timeline, userId)) {
+    return null
+  }
+
+  const now = new Date()
+
+  db.update(timelines)
+    .set({
+      visibility: 'private',
+      publishedAt: null,
+      updatedAt: now,
+    })
+    .where(eq(timelines.id, timelineId))
+    .run()
+
+  return getTimelineGraphById(timelineId)
+}
+
+export async function getPublishedTimelineBySlug(shareSlug: string) {
+  const timeline = db.select().from(timelines).where(eq(timelines.shareSlug, shareSlug)).get()
+
+  if (!timeline || timeline.visibility === 'private') {
+    return null
+  }
+
+  const snapshot = normalizeGraphJson(timeline.publishedGraphJson ?? timeline.graphJson)
+
+  return {
+    timeline,
+    nodes: snapshot.nodes,
+    edges: snapshot.edges,
+    viewport: snapshot.viewport ?? timeline.viewport ?? null,
   }
 }

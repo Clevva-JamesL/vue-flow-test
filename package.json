@@ -9,7 +9,8 @@
     "db:generate": "pnpm --filter @repo/api db:generate",
     "db:migrate": "pnpm --filter @repo/api db:migrate",
     "db:backfill": "pnpm --filter @repo/api db:backfill",
-    "test:step2": "pnpm --filter @repo/api test:step2"
+    "test:step2": "pnpm --filter @repo/api test:step2",
+    "test:step3": "pnpm --filter @repo/api test:step3"
   },
   "engines": {
     "node": ">=20"

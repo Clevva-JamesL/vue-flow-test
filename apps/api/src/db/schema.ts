@@ -10,6 +10,14 @@ export const users = sqliteTable('users', {
     .$defaultFn(() => new Date()),
 })
 
+export const sessions = sqliteTable('sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
 export const mediaItems = sqliteTable('media_items', {
   id: text('id').primaryKey(),
   type: text('type', { enum: ['book', 'movie', 'game'] }).notNull(),
@@ -116,6 +124,14 @@ export const timelineEdges = sqliteTable(
 
 export const usersRelations = relations(users, ({ many }) => ({
   timelines: many(timelines),
+  sessions: many(sessions),
+}))
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, {
+    fields: [sessions.userId],
+    references: [users.id],
+  }),
 }))
 
 export const timelinesRelations = relations(timelines, ({ one, many }) => ({

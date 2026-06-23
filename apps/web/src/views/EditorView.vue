@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { BookOpen, Film, Folder, Gamepad2, Plus } from '@lucide/vue'
+import { BookOpen, Copy, Film, Folder, Gamepad2, Globe, Link2, Plus } from '@lucide/vue'
 import type { FlowNodeType } from '@repo/shared'
 import LiteraryTimeline from '@/components/flow/LiteraryTimeline.vue'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +25,7 @@ const props = defineProps<{
 const router = useRouter()
 const store = useTimelineStore()
 const localTitle = ref('')
+const copyMessage = ref<string | null>(null)
 
 const saveStatus = computed(() => {
   if (store.isSaving) return 'Saving…'
@@ -37,6 +38,12 @@ const statusVariant = computed(() => {
   if (store.isSaving) return 'secondary'
   if (store.hasUnsavedChanges) return 'outline'
   return 'secondary'
+})
+
+const isPublished = computed(() => store.visibility !== 'private')
+const shareUrl = computed(() => {
+  if (!store.shareSlug || typeof window === 'undefined') return null
+  return `${window.location.origin}/share/${store.shareSlug}`
 })
 
 onMounted(async () => {
@@ -59,6 +66,24 @@ function onTitleBlur() {
 
 async function saveNow() {
   await store.save()
+}
+
+async function publishTimeline(visibility: 'public' | 'unlisted') {
+  await store.publish(visibility)
+}
+
+async function unpublishTimeline() {
+  await store.unpublish()
+}
+
+async function copyShareLink() {
+  if (!shareUrl.value) return
+
+  await navigator.clipboard.writeText(shareUrl.value)
+  copyMessage.value = 'Link copied'
+  setTimeout(() => {
+    copyMessage.value = null
+  }, 2000)
 }
 
 function addNode(type: FlowNodeType) {
@@ -91,7 +116,42 @@ const nodeOptions: Array<{ type: FlowNodeType; label: string; icon: typeof BookO
       </div>
 
       <div class="flex items-center gap-2">
+        <Badge v-if="isPublished" variant="secondary">
+          {{ store.visibility === 'public' ? 'Public' : 'Unlisted' }}
+        </Badge>
         <Badge :variant="statusVariant">{{ saveStatus }}</Badge>
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button variant="outline" size="sm">
+              <Globe data-icon="inline-start" />
+              Publish
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" class="w-56">
+            <DropdownMenuLabel>Sharing</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem :disabled="store.isSaving" @click="publishTimeline('public')">
+              <Globe />
+              Publish publicly
+            </DropdownMenuItem>
+            <DropdownMenuItem :disabled="store.isSaving" @click="publishTimeline('unlisted')">
+              <Link2 />
+              Publish unlisted link
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              v-if="isPublished"
+              :disabled="store.isSaving"
+              @click="unpublishTimeline"
+            >
+              Make private
+            </DropdownMenuItem>
+            <DropdownMenuSeparator v-if="shareUrl" />
+            <DropdownMenuItem v-if="shareUrl" @click="copyShareLink">
+              <Copy />
+              {{ copyMessage ?? 'Copy share link' }}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
             <Button variant="outline" size="sm">

@@ -26,8 +26,19 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
+const props = withDefaults(
+  defineProps<{
+    readonly?: boolean
+  }>(),
+  {
+    readonly: false,
+  },
+)
+
 const store = useTimelineStore()
-const { nodes, edges, viewport, id: timelineId } = storeToRefs(store)
+const { nodes, edges, viewport, id: timelineId, isReadOnly } = storeToRefs(store)
+
+const isCanvasReadOnly = computed(() => props.readonly || isReadOnly.value)
 
 const skipViewportDirty = ref(true)
 const canSyncFromFlow = ref(false)
@@ -42,11 +53,10 @@ const nodeTypes = {
 
 useTimelinePersistence()
 
-// Ignore Vue Flow's init-time writebacks; they can overwrite loaded positions with (0, 0).
 const flowNodes = computed({
   get: () => nodes.value as any,
   set: (value: FlowNode[]) => {
-    if (!canSyncFromFlow.value) return
+    if (!canSyncFromFlow.value || isCanvasReadOnly.value) return
     nodes.value = toStoreNodes(value)
   },
 })
@@ -54,7 +64,7 @@ const flowNodes = computed({
 const flowEdges = computed({
   get: () => edges.value as any,
   set: (value: FlowEdge[]) => {
-    if (!canSyncFromFlow.value) return
+    if (!canSyncFromFlow.value || isCanvasReadOnly.value) return
     edges.value = value.map((edge) => ({ ...edge }))
   },
 })
@@ -64,24 +74,27 @@ function onNodesInitialized() {
 }
 
 function onNodesChange(changes: NodeChange[]) {
+  if (isCanvasReadOnly.value) return
   if (changes.some((change) => change.type === 'add' || change.type === 'remove')) {
     store.markDirty()
   }
 }
 
 function onEdgesChange(changes: EdgeChange[]) {
+  if (isCanvasReadOnly.value) return
   if (changes.some((change) => change.type === 'add' || change.type === 'remove')) {
     store.markDirty()
   }
 }
 
 function onNodeDragStop() {
-  if (!flowInstance.value || !canSyncFromFlow.value) return
+  if (isCanvasReadOnly.value || !flowInstance.value || !canSyncFromFlow.value) return
   nodes.value = toStoreNodes(unref(flowInstance.value.getNodes) as FlowNode[])
   store.markDirty()
 }
 
 function onConnect(connection: { source: string; target: string }) {
+  if (isCanvasReadOnly.value) return
   edges.value = [
     ...edges.value,
     {
@@ -94,7 +107,7 @@ function onConnect(connection: { source: string; target: string }) {
 }
 
 function onViewportChange(nextViewport: ViewportTransform) {
-  if (skipViewportDirty.value) return
+  if (isCanvasReadOnly.value || skipViewportDirty.value) return
   store.setViewport(nextViewport)
 }
 
@@ -124,6 +137,10 @@ async function onPaneReady(flow: VueFlowStore) {
       :node-types="(nodeTypes as any)"
       :default-viewport="viewport ?? undefined"
       :fit-view-on-init="false"
+      :nodes-draggable="!isCanvasReadOnly"
+      :nodes-connectable="!isCanvasReadOnly"
+      :elements-selectable="!isCanvasReadOnly"
+      :pan-on-drag="true"
       @nodes-initialized="onNodesInitialized"
       @nodes-change="onNodesChange"
       @edges-change="onEdgesChange"

@@ -21,6 +21,10 @@ export const useTimelineStore = defineStore('timeline', () => {
   const error = ref<string | null>(null)
 
   const hasUnsavedChanges = ref(false)
+  const isReadOnly = ref(false)
+  const visibility = ref<'private' | 'unlisted' | 'public'>('private')
+  const shareSlug = ref<string | null>(null)
+  const publishedAt = ref<string | null>(null)
 
   const savePayload = computed((): SaveTimelinePayload => ({
     title: title.value,
@@ -86,16 +90,11 @@ export const useTimelineStore = defineStore('timeline', () => {
   async function load(timelineId: string) {
     isLoading.value = true
     error.value = null
+    isReadOnly.value = false
 
     try {
       const timeline = await timelineApi.get(timelineId)
-      id.value = timeline.id
-      title.value = timeline.title
-      nodes.value = timeline.nodes.map(cloneFlowNode)
-      edges.value = timeline.edges.map((edge) => ({ ...edge }))
-      viewport.value = timeline.viewport ? { ...timeline.viewport } : null
-      hasUnsavedChanges.value = false
-      lastSavedAt.value = timeline.updatedAt
+      applyTimeline(timeline)
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to load timeline'
       throw err
@@ -104,20 +103,83 @@ export const useTimelineStore = defineStore('timeline', () => {
     }
   }
 
+  async function loadPublic(slug: string) {
+    isLoading.value = true
+    error.value = null
+    isReadOnly.value = true
+
+    try {
+      const timeline = await timelineApi.getByShareSlug(slug)
+      applyTimeline(timeline)
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to load shared timeline'
+      throw err
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  function applyTimeline(timeline: Awaited<ReturnType<typeof timelineApi.get>>) {
+    id.value = timeline.id
+    title.value = timeline.title
+    nodes.value = timeline.nodes.map(cloneFlowNode)
+    edges.value = timeline.edges.map((edge) => ({ ...edge }))
+    viewport.value = timeline.viewport ? { ...timeline.viewport } : null
+    visibility.value = timeline.visibility ?? 'private'
+    shareSlug.value = timeline.shareSlug ?? null
+    publishedAt.value = timeline.publishedAt ?? null
+    isReadOnly.value = timeline.readOnly ?? isReadOnly.value
+    hasUnsavedChanges.value = false
+    lastSavedAt.value = timeline.updatedAt
+  }
+
+  async function publish(nextVisibility: 'public' | 'unlisted') {
+    if (!id.value || isReadOnly.value) return
+
+    isSaving.value = true
+    error.value = null
+
+    try {
+      if (hasUnsavedChanges.value) {
+        await save()
+      }
+
+      const timeline = await timelineApi.publish(id.value, { visibility: nextVisibility })
+      applyTimeline(timeline)
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to publish timeline'
+      throw err
+    } finally {
+      isSaving.value = false
+    }
+  }
+
+  async function unpublish() {
+    if (!id.value || isReadOnly.value) return
+
+    isSaving.value = true
+    error.value = null
+
+    try {
+      const timeline = await timelineApi.unpublish(id.value)
+      applyTimeline(timeline)
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to unpublish timeline'
+      throw err
+    } finally {
+      isSaving.value = false
+    }
+  }
+
   async function save() {
-    if (!id.value) return
+    if (!id.value || isReadOnly.value) return
 
     isSaving.value = true
     error.value = null
 
     try {
       const timeline = await timelineApi.save(id.value, savePayload.value)
-      title.value = timeline.title
-      nodes.value = timeline.nodes.map(cloneFlowNode)
-      edges.value = timeline.edges.map((edge) => ({ ...edge }))
-      viewport.value = timeline.viewport ? { ...timeline.viewport } : null
-      lastSavedAt.value = timeline.updatedAt
-      hasUnsavedChanges.value = false
+      applyTimeline(timeline)
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to save timeline'
       throw err
@@ -137,6 +199,10 @@ export const useTimelineStore = defineStore('timeline', () => {
     lastSavedAt.value = null
     error.value = null
     hasUnsavedChanges.value = false
+    isReadOnly.value = false
+    visibility.value = 'private'
+    shareSlug.value = null
+    publishedAt.value = null
   }
 
   return {
@@ -150,6 +216,10 @@ export const useTimelineStore = defineStore('timeline', () => {
     lastSavedAt,
     error,
     hasUnsavedChanges,
+    isReadOnly,
+    visibility,
+    shareSlug,
+    publishedAt,
     savePayload,
     markDirty,
     setGraph,
@@ -158,6 +228,9 @@ export const useTimelineStore = defineStore('timeline', () => {
     addChildNode,
     removeNode,
     load,
+    loadPublic,
+    publish,
+    unpublish,
     save,
     reset,
   }

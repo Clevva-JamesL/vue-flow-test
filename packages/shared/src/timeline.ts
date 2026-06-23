@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { timelineVisibilitySchema } from './media'
 
 export const viewportSchema = z.object({
   x: z.number(),
@@ -49,11 +50,21 @@ export const timelineSchema = z.object({
   nodes: z.array(flowNodeSchema),
   edges: z.array(flowEdgeSchema),
   viewport: viewportSchema.nullable(),
+  visibility: timelineVisibilitySchema.optional(),
+  shareSlug: z.string().nullable().optional(),
+  publishedAt: z.string().nullable().optional(),
+  readOnly: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
 
 export type Timeline = z.infer<typeof timelineSchema>
+
+export const publishTimelineSchema = z.object({
+  visibility: z.enum(['public', 'unlisted']),
+})
+
+export type PublishTimelinePayload = z.infer<typeof publishTimelineSchema>
 
 export const createTimelineSchema = z.object({
   title: z.string().min(1).max(200).optional(),

@@ -10,18 +10,21 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:backfill": "tsx src/scripts/backfill-graph-json.ts",
-    "test:step2": "tsx src/scripts/verify-step2.ts"
+    "test:step2": "tsx src/scripts/verify-step2.ts",
+    "test:step3": "tsx src/scripts/verify-step3.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.1",
     "@hono/zod-validator": "^0.5.0",
     "@repo/shared": "workspace:*",
+    "bcryptjs": "^3.0.2",
     "better-sqlite3": "^11.9.1",
     "drizzle-orm": "^0.41.0",
     "hono": "^4.7.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.13.11",
     "drizzle-kit": "^0.30.5",
