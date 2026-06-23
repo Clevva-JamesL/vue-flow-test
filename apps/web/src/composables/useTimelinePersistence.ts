@@ -1,41 +1,86 @@
-import { onUnmounted, watch } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import { useTimelineStore } from '@/stores/timelineStore'
 
-function debounce<T extends (...args: never[]) => void>(fn: T, delayMs: number) {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
+const IDLE_AFTER_MOVE_MS = 2000
+const MIN_AUTOSAVE_INTERVAL_MS = 30_000
 
-  const debounced = (...args: Parameters<T>) => {
-    clearTimeout(timeoutId)
-    timeoutId = setTimeout(() => fn(...args), delayMs)
+export function useTimelinePersistence() {
+  const store = useTimelineStore()
+  const lastNodeMoveAt = ref(Date.now())
+  let saveTimeoutId: ReturnType<typeof setTimeout> | undefined
+  let lastAutosaveAt = Date.now()
+
+  function markNodeMoved() {
+    lastNodeMoveAt.value = Date.now()
+    scheduleAutosave()
   }
 
-  debounced.cancel = () => clearTimeout(timeoutId)
+  function getNextSaveTime() {
+    return Math.max(
+      lastNodeMoveAt.value + IDLE_AFTER_MOVE_MS,
+      lastAutosaveAt + MIN_AUTOSAVE_INTERVAL_MS,
+    )
+  }
 
-  return debounced
-}
+  function scheduleAutosave() {
+    clearTimeout(saveTimeoutId)
+    const delay = Math.max(0, getNextSaveTime() - Date.now())
+    saveTimeoutId = setTimeout(() => {
+      void attemptAutosave()
+    }, delay)
+  }
 
-export function useTimelinePersistence(debounceMs = 1500) {
-  const store = useTimelineStore()
+  async function attemptAutosave() {
+    if (!store.id || store.isReadOnly || !store.hasUnsavedChanges) return
 
-  const debouncedSave = debounce(async () => {
-    if (!store.id || store.isReadOnly || !store.hasUnsavedChanges || store.isSaving) return
+    const now = Date.now()
+    if (now < lastNodeMoveAt.value + IDLE_AFTER_MOVE_MS || now < lastAutosaveAt + MIN_AUTOSAVE_INTERVAL_MS) {
+      scheduleAutosave()
+      return
+    }
+
+    if (store.isSaving) {
+      scheduleAutosave()
+      return
+    }
+
     await store.save()
-  }, debounceMs)
+    lastAutosaveAt = Date.now()
+  }
 
-  const stopWatch = watch(
+  const stopLastSavedWatch = watch(
+    () => store.lastSavedAt,
+    (savedAt) => {
+      if (savedAt) {
+        lastAutosaveAt = new Date(savedAt).getTime()
+      }
+    },
+    { immediate: true },
+  )
+
+  const stopIdWatch = watch(
+    () => store.id,
+    () => {
+      lastNodeMoveAt.value = Date.now()
+    },
+  )
+
+  const stopChangeWatch = watch(
     () => [store.nodes, store.edges, store.viewport, store.title] as const,
     () => {
       if (store.hasUnsavedChanges && store.id) {
-        void debouncedSave()
+        scheduleAutosave()
       }
     },
     { deep: true },
   )
 
   onUnmounted(() => {
-    stopWatch()
-    debouncedSave.cancel()
+    stopLastSavedWatch()
+    stopIdWatch()
+    stopChangeWatch()
+    clearTimeout(saveTimeoutId)
   })
 
-  return { debouncedSave }
+  return { markNodeMoved }
 }

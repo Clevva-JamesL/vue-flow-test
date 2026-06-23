@@ -51,7 +51,7 @@ const nodeTypes = {
   group: markRaw(GroupNode),
 }
 
-useTimelinePersistence()
+const { markNodeMoved } = useTimelinePersistence()
 
 const flowNodes = computed({
   get: () => nodes.value as any,
@@ -87,10 +87,16 @@ function onEdgesChange(changes: EdgeChange[]) {
   }
 }
 
+function onNodeDrag() {
+  if (isCanvasReadOnly.value) return
+  markNodeMoved()
+}
+
 function onNodeDragStop() {
   if (isCanvasReadOnly.value || !flowInstance.value || !canSyncFromFlow.value) return
   nodes.value = toStoreNodes(unref(flowInstance.value.getNodes) as FlowNode[])
   store.markDirty()
+  markNodeMoved()
 }
 
 function onConnect(connection: { source: string; target: string }) {
@@ -144,6 +150,7 @@ async function onPaneReady(flow: VueFlowStore) {
       @nodes-initialized="onNodesInitialized"
       @nodes-change="onNodesChange"
       @edges-change="onEdgesChange"
+      @node-drag="onNodeDrag"
       @node-drag-stop="onNodeDragStop"
       @connect="onConnect"
       @viewport-change="onViewportChange"
